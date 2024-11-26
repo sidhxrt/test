@@ -1,69 +1,92 @@
-import nltk
-from typing import Dict
-from spacy.lang.en import English
-from nltk.sentiment import SentimentIntensityAnalyzer
+import spacy
+from textacy import text_stats
+from spacytextblob.spacytextblob import SpacyTextBlob
 
-# nltk.download('vader_lexicon')
+"""
+pip install spacy textacy
+python -m spacy download en_core_web_sm
+python -m spacy download en_core_web_md (use this)
+python -m spacy download en_core_web_lg
 
-# spacy and vader 
-nlp = English()
-nlp.add_pipe('sentencizer')
-sentiment_analyzer = SentimentIntensityAnalyzer()
+pip install spacytextblob
+python -m textblob.download_corpora
+"""
 
-def individual_report_generator(question: str, answer: str):
-    grammar_weight = 0.3
-    relevance_weight = 0.5
-    tone_weight = 0.2
+nlp = spacy.load("en_core_web_lg")
 
-    formal_words = {"therefore", "hence", "furthermore", "however", "please", "thank you"}
-    slang_words = {"gonna", "wanna", "ain't", "y'all", "dude"}
-    
-    doc = nlp(answer)
+if "spacytextblob" not in nlp.pipe_names:
+    nlp.add_pipe("spacytextblob")
 
-    # grammar & syntax score(spacy)
-    grammar_errors = sum(1 for token in doc if not token.is_alpha)
-    grammar_score = max(0, 10 - grammar_errors)  
-
-    # tone & professionalism score(spacy)
-    formal_count = sum(1 for word in doc if word.text.lower() in formal_words)
-    slang_count = sum(1 for word in doc if word.text.lower() in slang_words)
-    professionalism_score = max(0, 10 + formal_count - slang_count)
-
-    # relevance to question score(spacy)
+def evaluate_response(question, response):
     question_doc = nlp(question)
-    shared_words = set(token.text.lower() for token in doc if token.is_alpha) & \
-                   set(token.text.lower() for token in question_doc if token.is_alpha)
-    relevance_score = min(10, len(shared_words))  
+    response_doc = nlp(response)
 
-    # clarity & engagement score(spacy)
-    sentence_count = len(list(doc.sents))
-    clarity_score = min(10, len(doc) / (sentence_count + 1))  
+    # grammar & syntax
+    def grammar_syntax_score(doc):
+        grammar_errors = sum(1 for token in doc if token.is_alpha and token.tag_ == "XX")
+        grammar_syntax_score = 0
+        if len(doc) > 0:
+            grammar_syntax_score = round((1 - grammar_errors / len(doc)) * 10, 2)
+            return grammar_syntax_score
+        return grammar_syntax_score
 
-    # sentiment score(vader)
-    sentiment_scores = sentiment_analyzer.polarity_scores(answer)
-    sentiment_score = sentiment_scores['compound']  # 'compound' represents overall sentiment
-    sentiment_score = round((sentiment_score + 1) * 5, 2)  # Convert from [-1, 1] to [0, 10]
+    # tone & professionalism
+    def tone_professionalism_score(question_text, response_text):
+        # OpenAI function call to calculate the tone and professionalism score
+        tone = 0
+        return tone
 
-    # weighted overall score
-    overall_score = (
-        grammar_weight * grammar_score +
-        relevance_weight * relevance_score +
-        tone_weight * professionalism_score
-    )
+    # relevance to question
+    def relevance_to_question_score(q_doc, r_doc):
+        relevance_score = round(q_doc.similarity(r_doc) * 10, 2)
+        return relevance_score
 
-    # individual question report
-    report = {
-        "Grammar & Syntax": round(grammar_score, 2),
-        "Tone & Professionalism": round(professionalism_score, 2),
-        "Relevance to Question": round(relevance_score, 2),
-        "Clarity & Engagement": round(clarity_score, 2),
-        "Sentiment": round(sentiment_score, 2),
-        "Overall Score": round(overall_score, 2),
+    # clarity and engagement
+    def clarity_engagement_score(doc):
+        readability = text_stats.readability.flesch_reading_ease(doc)
+        return round(readability / 10, 2)  # FRE is originally 0 to 100, we bring it to 0 to 10
+
+    # sentiment
+    def sentiment_score(doc):
+        polarity = doc._.blob.polarity  # polarity lies between -1 and 1
+        sentiment_score = round((polarity + 1) * 5, 2)  # we will bring it to 0 to 10
+        return sentiment_score
+
+    # final score
+    grammar = grammar_syntax_score(response_doc)
+    tone = tone_professionalism_score(question, response)
+    relevance = relevance_to_question_score(question_doc, response_doc)
+    clarity = clarity_engagement_score(response_doc)
+    sentiment = sentiment_score(response_doc)
+    overall_score = round((grammar + sentiment + relevance + clarity)/4, 2)
+    
+    final_score = {
+        "Grammar & Syntax": grammar,
+        "Tone & Professionalism": tone,
+        "Relevance to Question": relevance,
+        "Clarity & Engagement": clarity,
+        "Sentiment": sentiment,
+        "Overall Score": overall_score
     }
-    return report
+    return final_score
 
-question = "Write an email apologizing to a customer for a delayed shipment and explain how the issue is being resolved."
-answer = "Subject: Sorry for the Delay in Your Shipment Hi [Customer's Name], I'm really sorry about the delay with your shipment. I know how frustrating it must be to wait longer than expected, and I completely understand if this has been an inconvenience for you. The delay happened because [briefly explain the reason, e.g., there was an unexpected issue at our shipping center]. We're already working to fix this by [explain the solution, e.g., expediting your package and ensuring it reaches you as soon as possible]. Your updated delivery date is [insert new delivery date], and Ill keep you posted if there are any more changes (but I dont expect there to be). Again, Im really sorry for this. Thanks so much for being patient with us, and if theres anything else I can help with, just let me know! Take care, [Your Name]"
+def overall_report(data):
+    """
+    this function will have input like this:
+    data = [
+        {
+            question: str
+            candidate_response: str
+            final_score: dict
+            # comment: dict
+        }
+    ]
+    """
+    # OpenAI function call to calculate overall report based on individual question reports
 
-report = individual_report_generator(question, answer)
-print(report)
+# example
+question_text = "What strategies would you use to handle a difficult customer?"
+response_text = "I would stay calm, listen carefully, and offer a solution that meets their needs."
+result = evaluate_response(question_text, response_text)
+
+print(result)
