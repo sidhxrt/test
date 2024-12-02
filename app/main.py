@@ -4,6 +4,8 @@ from app.api import root
 from dotenv import load_dotenv
 import os
 
+load_dotenv()
+
 # API Key Configuration
 API_KEY = os.getenv("API_KEY")
 API_KEY_NAME = "X-API-KEY"
@@ -19,7 +21,7 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
             detail="Could not validate API key",
         )
 
-app = FastAPI()
+app = FastAPI(dependencies=[Depends(get_api_key)])
 
 # Include the router with API key dependency applied globally
-app.include_router(root.router, dependencies=[Depends(get_api_key)])
+app.include_router(root.router)
